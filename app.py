@@ -115,7 +115,7 @@ class LangGraphOrchestrator:
             host = os.getenv("DB_HOST", "localhost")
             port = os.getenv("DB_PORT", "5432")
             dbname = os.getenv("DB_NAME", "postgres")
-            db_url = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+            db_url = f"postgresql+pg8000://{user}:{password}@{host}:{port}/{dbname}"
             self.engine = create_engine(db_url)
 
         # Initialize tools for each agent
