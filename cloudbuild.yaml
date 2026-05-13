@@ -1,0 +1,4 @@
+# cloudbuild.yaml - minimal version
+steps:
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['run', 'services', 'replace', 'service.yaml', '--region=europe-west1']
