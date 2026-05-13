@@ -2,13 +2,8 @@ apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   name: plannavigator-git
-  annotations:
-    run.googleapis.com/cloudsql-instances: adv-lighthouse-plnv:us-central1:plnv-project
 spec:
   template:
-    metadata:
-        annotations:
-          run.googleapis.com/cloudsql-instances: adv-lighthouse-plnv:us-central1:plnv-project
     spec:
       containers:
       - image: gcr.io/adv-lighthouse-plnv/plannavigator-git  # Fixed image name to match service
