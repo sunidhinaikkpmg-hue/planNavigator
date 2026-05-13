@@ -1,0 +1,28 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: plan-navigator
+spec:
+  template:
+    spec:
+      containers:
+      - image: gcr.io/adv-lighthouse-plnv/plan-navigator
+        env:
+        # Non-sensitive values are OK to hardcode
+        - name: GCP_PROJECT_ID
+          value: "adv-lighthouse-plnv"
+        - name: DB_USER
+          value: "postgres"
+        - name: VECTOR_BUCKET
+          value: "plnv-vector-bucket"
+        # Sensitive values use Secret Manager references
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: plnv-google-api-key  # Secret name in Secret Manager
+              key: latest          # Version
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: plnv-db-password
+              key: latest

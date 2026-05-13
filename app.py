@@ -1,10 +1,13 @@
+import os
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import asyncio
 from typing import TypedDict, Annotated, List, Union, Any, Dict
 import re
 from langgraph.graph import StateGraph, END
 from langchain_core.tools import Tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import MemorySaver
-import os
 import operator
 from sqlalchemy import create_engine, text
 import sqlalchemy
@@ -24,8 +27,11 @@ from PlanHealthLLM import RAGPipeline
 from dotenv import load_dotenv
 load_dotenv()
 
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-# Define the state structure
+# Define the state structure (keep your existing classes)
 class AgentState(TypedDict):
     query: str
     user_id: str
@@ -37,7 +43,9 @@ class AgentState(TypedDict):
     final_response: str
     error: str
 
+# Keep your existing LangGraphOrchestrator class exactly as is
 class LangGraphOrchestrator:
+    # ... (keep all the existing code for this class)
     VALID_ROUTE_KEYS = {"sql", "recommend", "simulate", "multi"}
 
     def __init__(self, config):
@@ -147,6 +155,7 @@ class LangGraphOrchestrator:
         # Build the graph
         self.app = self._build_graph()
 
+    # ... (keep all the other methods from LangGraphOrchestrator)
     def _initialize_rag_pipeline(self):
         """Initialize the RAGPipeline with your configuration"""
         # Use environment variables or config
@@ -564,18 +573,19 @@ class LangGraphOrchestrator:
     
     def _get_recommendations(self, context: dict) -> list:
         """Get ML-based recommendations"""
-        # Implementation here
-        pass
+        # Implementation here - placeholder for now
+        return ["Recommendation 1", "Recommendation 2"]
     
     def _vector_search(self, context: dict) -> list:
         """Search vector database"""
-        # Implementation here
-        pass
+        # Implementation here - placeholder
+        return []
     
     def _extract_user_id(self, query: str) -> str:
         """Extract user ID from query"""
-        # Implementation here
-        pass
+        # Simple regex pattern - adjust as needed
+        match = re.search(r'user[_\s]*(?:id)?[_\s]*[:=]?\s*(\w+)', query, re.IGNORECASE)
+        return match.group(1) if match else None
     
     async def process_query(self, query: str, thread_id: str = "default"):
         """Process a query through the graph"""
@@ -591,104 +601,132 @@ class LangGraphOrchestrator:
         
         return result
 
-# Advanced LangGraph with parallel execution
-class AdvancedLangGraphOrchestrator(LangGraphOrchestrator):
-    def _build_graph(self):
-        workflow = StateGraph(AgentState)
-        
-        # Add nodes
-        workflow.add_node("router", self.route_query)
-        # workflow.add_node("parallel_executor", self.parallel_execute)
-        workflow.add_node("sql_agent", self.sql_agent)
-        workflow.add_node("recommendation_agent", self.recommendation_agent)
-        workflow.add_node("simulator_agent", self.simulator_agent)
-        workflow.add_node("synthesizer", self.synthesize_response)
-        
-        # Entry point
-        workflow.set_entry_point("router")
-        
-        # Routing logic
-        workflow.add_conditional_edges(
-            "router",
-            self.routing_decision,
-            {
-                "single": "sql_agent",
-                # "parallel": "parallel_executor",
-                "sequential": "sql_agent"
-            }
-        )
-        
-        # Parallel execution node
-        # workflow.add_edge("parallel_executor", "synthesizer")
-        
-        # Sequential paths
-        workflow.add_conditional_edges(
-            "sql_agent",
-            lambda x: "recommendation_agent" if x.get("needs_ml") else "synthesizer"
-        )
-        
-        workflow.add_edge("recommendation_agent", "synthesizer")
-        workflow.add_edge("simulator_agent", "synthesizer")
-        workflow.add_edge("synthesizer", END)
-        
-        return workflow.compile()
-    
-    def parallel_execute(self, state: AgentState) -> AgentState:
-        """Execute multiple agents in parallel"""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        
-        agents_to_run = state.get("agents_to_run", [])
-        
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {}
-            
-            if "sql" in agents_to_run:
-                futures[executor.submit(self.sql_agent, state)] = "sql"
-            if "recommend" in agents_to_run:
-                futures[executor.submit(self.recommendation_agent, state)] = "recommend"
-            if "simulate" in agents_to_run:
-                futures[executor.submit(self.simulator_agent, state)] = "simulate"
-            
-            # Collect results
-            for future in as_completed(futures):
-                agent_name = futures[future]
-                try:
-                    result = future.result()
-                    # Merge results back into state
-                    state.update(result)
-                except Exception as e:
-                    state["messages"].append(f"Error in {agent_name}: {str(e)}")
-        
-        return state
 
-# Usage example
-async def main():
-    config = {
-        "sql_config": {...},
-        "ml_config": {...},
-        "vector_config": {
-            "index_endpoint": "projects/.../indexEndpoints/...",
-            "bucket": "plnv-vector-bucket",
-            "metadata_file": "metadata/metadata_20260512_060948.json"
+# Initialize the orchestrator globally
+config = {
+    "sql_config": {},
+    "ml_config": {},
+    "vector_config": {}
+}
+
+# Initialize orchestrator on startup
+orchestrator = None
+
+def get_orchestrator():
+    global orchestrator
+    if orchestrator is None:
+        orchestrator = LangGraphOrchestrator(config)
+    return orchestrator
+
+# Flask routes
+@app.route('/')
+def home():
+    return jsonify({
+        "message": "Plan Navigator API",
+        "endpoints": {
+            "/health": "Health check",
+            "/query": "POST - Submit a query",
+            "/chat": "POST - Chat with conversation memory"
         }
-    }
-    
-    orchestrator = LangGraphOrchestrator(config)
-    
-    # Query that uses RAG
-    result1 = await orchestrator.process_query(
-        "What are the key recommendations for improving plan health for 401k plans?",
-        thread_id="session_123"
-    )
-    
-    # Query that combines SQL and RAG
-    result2 = await orchestrator.process_query(
-        "Show me participants with low balances and explain what investment options might help them",
-        thread_id="session_123"
-    )
-    
-    print(result2["final_response"])
+    })
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route('/query', methods=['POST'])
+def query():
+    try:
+        data = request.get_json()
+        if not data or 'query' not in data:
+            return jsonify({"error": "Query field is required"}), 400
+        
+        user_query = data['query']
+        thread_id = data.get('thread_id', 'default')
+        
+        # Get orchestrator instance
+        orch = get_orchestrator()
+        
+        # Run async function in sync context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(orch.process_query(user_query, thread_id))
+        loop.close()
+        
+        # Format response
+        response = {
+            "query": user_query,
+            "response": result.get('final_response', 'No response generated'),
+            "thread_id": thread_id,
+            "details": {
+                "sql_results": result.get('sql_results'),
+                "recommendations": result.get('recommendations'),
+                "vector_results": result.get('vector_results'),
+                "messages": result.get('messages', [])
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    """Endpoint for conversational interaction with memory"""
+    try:
+        data = request.get_json()
+        if not data or 'message' not in data:
+            return jsonify({"error": "Message field is required"}), 400
+        
+        message = data['message']
+        session_id = data.get('session_id', 'default_session')
+        
+        # Get orchestrator instance
+        orch = get_orchestrator()
+        
+        # Run async function in sync context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(orch.process_query(message, session_id))
+        loop.close()
+        
+        # Simplified response for chat interface
+        response = {
+            "message": result.get('final_response', 'I apologize, but I encountered an issue processing your request.'),
+            "session_id": session_id,
+            "timestamp": os.popen('date').read().strip()
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({
+            "error": "An error occurred processing your request",
+            "details": str(e)
+        }), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
+
+# Main entry point
+if __name__ == '__main__':
+    # Get port from environment variable (required for Cloud Run)
+    port = int(os.environ.get('PORT', 8080))
+    
+    # Initialize orchestrator on startup
+    print("Initializing Plan Navigator API...")
+    get_orchestrator()
+    print("Initialization complete!")
+    
+    # Run Flask app
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False  # Set to False in production
+    )
