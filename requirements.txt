@@ -1,13 +1,13 @@
-langchain
-langgraph
 Flask==2.3.2
 flask-cors==4.0.0
 google-cloud-aiplatform
-google-cloud-sql-connector
+cloud-sql-python-connector[pg8000]
 google-cloud-dlp
 google-cloud-storage
+langchain
 langchain-google-genai
 langchain-google-vertexai
+langgraph
 sqlalchemy
 pg8000
 python-dotenv
