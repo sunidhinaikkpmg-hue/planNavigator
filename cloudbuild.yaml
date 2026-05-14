@@ -146,7 +146,7 @@ steps:
 
 # Substitution variables
 substitutions:
-  _REGION: 'us-central1'  # Change if needed
+  _REGION: 'europe-west1'  # Change if needed
 
 # Build configuration
 options:
