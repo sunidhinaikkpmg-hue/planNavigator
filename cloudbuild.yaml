@@ -20,7 +20,7 @@ steps:
     args: ['push', '--all-tags', 'gcr.io/${PROJECT_ID}/plan-navigator-api']
     waitFor: ['build-backend']
 
-  # Step 3: Update config.yaml with new image
+  # Step 3: Update service.yaml with new image
   - id: 'update-backend-config'
     name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
@@ -28,15 +28,15 @@ steps:
       - '-c'
       - |
         cd backend
-        # Update the image in config.yaml
-        sed -i "s|image:.*|image: gcr.io/${PROJECT_ID}/plan-navigator-api:${SHORT_SHA}|g" config.yaml
+        # Update the image in service.yaml
+        sed -i "s|image:.*|image: gcr.io/${PROJECT_ID}/plan-navigator-api:${SHORT_SHA}|g" service.yaml
         
         # Show the updated config for debugging
-        echo "Updated config.yaml:"
-        grep "image:" config.yaml
+        echo "Updated service.yaml:"
+        grep "image:" service.yaml
     waitFor: ['push-backend']
 
-  # Step 4: Deploy backend using config.yaml
+  # Step 4: Deploy backend using service.yaml
   - id: 'deploy-backend'
     name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
@@ -44,7 +44,7 @@ steps:
       - 'run'
       - 'services'
       - 'replace'
-      - 'config.yaml'
+      - 'service.yaml'
       - '--region=${_REGION}'
       - '--project=${PROJECT_ID}'
     dir: 'backend'
