@@ -1,0 +1,81 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: plan-navigator-api
+  annotations:
+    run.googleapis.com/ingress: all  # Allow all traffic
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2  # Use 2nd gen
+        run.googleapis.com/startup-cpu-boost: 'true'    # Faster cold starts
+    spec:
+      serviceAccountName: plan-navigator-sa  # If you have a custom service account
+      timeoutSeconds: 300  # 5 minute timeout for LangGraph processing
+      containerConcurrency: 100
+      containers:
+      - image: gcr.io/adv-lighthouse-plnv/plan-navigator-api:latest
+        ports:
+        - containerPort: 8080
+        env:
+        # Non-sensitive values
+        - name: GCP_PROJECT_ID
+          value: "adv-lighthouse-plnv"
+        - name: GCP_LOCATION
+          value: "us-central1"
+        - name: DB_USER
+          value: "postgres"
+        - name: DB_NAME
+          value: "postgres"
+        - name: VECTOR_BUCKET
+          value: "plnv-vector-bucket"
+        - name: VECTOR_INDEX_ENDPOINT
+          value: "projects/127510819679/locations/us-central1/indexEndpoints/3776015399875772416"
+        - name: VECTOR_METADATA_FILE
+          value: "metadata/metadata_20260512_060948.json"
+        - name: PORT
+          value: "8080"
+        
+        # Sensitive values from Secret Manager
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: plnv-google-api-key
+              key: latest
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: plnv-db-password
+              key: latest
+        - name: INSTANCE_CONNECTION_NAME
+          valueFrom:
+            secretKeyRef:
+              name: plnv-instance-connection-name
+              key: latest
+              
+        resources:
+          limits:
+            cpu: "4"
+            memory: "4Gi"
+          requests:
+            cpu: "2"
+            memory: "2Gi"
+            
+        # Health check
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 10
+          failureThreshold: 30  # Allow up to 2.5 minutes for startup

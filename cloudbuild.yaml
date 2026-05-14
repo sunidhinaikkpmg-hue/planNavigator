@@ -1,0 +1,157 @@
+# cloudbuild.yaml (in repository root)
+steps:
+  # ========== BACKEND DEPLOYMENT ==========
+  
+  # Step 1: Build backend Docker image
+  - id: 'build-backend'
+    name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/plan-navigator-api:${SHORT_SHA}'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/plan-navigator-api:latest'
+      - '.'
+    dir: 'backend'
+
+  # Step 2: Push backend image to Container Registry
+  - id: 'push-backend'
+    name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'gcr.io/${PROJECT_ID}/plan-navigator-api']
+    waitFor: ['build-backend']
+
+  # Step 3: Update config.yaml with new image
+  - id: 'update-backend-config'
+    name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd backend
+        # Update the image in config.yaml
+        sed -i "s|image:.*|image: gcr.io/${PROJECT_ID}/plan-navigator-api:${SHORT_SHA}|g" config.yaml
+        
+        # Show the updated config for debugging
+        echo "Updated config.yaml:"
+        grep "image:" config.yaml
+    waitFor: ['push-backend']
+
+  # Step 4: Deploy backend using config.yaml
+  - id: 'deploy-backend'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'services'
+      - 'replace'
+      - 'config.yaml'
+      - '--region=${_REGION}'
+      - '--project=${PROJECT_ID}'
+    dir: 'backend'
+    waitFor: ['update-backend-config']
+
+  # Step 5: Make backend publicly accessible
+  - id: 'allow-backend-public'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'services'
+      - 'add-iam-policy-binding'
+      - 'plan-navigator-api'
+      - '--member=allUsers'
+      - '--role=roles/run.invoker'
+      - '--region=${_REGION}'
+      - '--project=${PROJECT_ID}'
+    waitFor: ['deploy-backend']
+
+  # ========== FRONTEND DEPLOYMENT ==========
+  
+  # Step 6: Get backend URL for frontend
+  - id: 'get-backend-url'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Get the backend service URL
+        BACKEND_URL=$(gcloud run services describe plan-navigator-api \
+          --region=${_REGION} \
+          --project=${PROJECT_ID} \
+          --format="value(status.url)")
+        
+        echo "Backend URL: $${BACKEND_URL}"
+        echo "$${BACKEND_URL}" > /workspace/backend-url.txt
+        
+        # Verify the URL is accessible
+        curl -f "$${BACKEND_URL}/health" || echo "Warning: Backend health check failed"
+    waitFor: ['allow-backend-public']
+
+  # Step 7: Build frontend with backend URL
+  - id: 'build-frontend'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        BACKEND_URL=$(cat /workspace/backend-url.txt)
+        echo "Building frontend with BACKEND_URL: $${BACKEND_URL}"
+        
+        docker build \
+          -t gcr.io/${PROJECT_ID}/plan-navigator-ui:${SHORT_SHA} \
+          -t gcr.io/${PROJECT_ID}/plan-navigator-ui:latest \
+          --build-arg REACT_APP_BACKEND_URL=$${BACKEND_URL} \
+          .
+    dir: 'frontend'
+    waitFor: ['get-backend-url']
+
+  # Step 8: Push frontend image
+  - id: 'push-frontend'
+    name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'gcr.io/${PROJECT_ID}/plan-navigator-ui']
+    waitFor: ['build-frontend']
+
+  # Step 9: Deploy frontend to Cloud Run
+  - id: 'deploy-frontend'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'plan-navigator-ui'
+      - '--image=gcr.io/${PROJECT_ID}/plan-navigator-ui:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--project=${PROJECT_ID}'
+      - '--allow-unauthenticated'
+      - '--platform=managed'
+      - '--port=80'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      - '--max-instances=10'
+      - '--concurrency=80'
+    waitFor: ['push-frontend']
+
+  # Step 10: Output deployment URLs
+  - id: 'show-urls'
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "========== Deployment Complete =========="
+        echo "Backend URL: $(gcloud run services describe plan-navigator-api --region=${_REGION} --format='value(status.url)')"
+        echo "Frontend URL: $(gcloud run services describe plan-navigator-ui --region=${_REGION} --format='value(status.url)')"
+        echo "========================================"
+    waitFor: ['deploy-frontend']
+
+# Substitution variables
+substitutions:
+  _REGION: 'us-central1'  # Change if needed
+
+# Build configuration
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'  # Faster builds
+  
+# Timeout
+timeout: 1800s  # 30 minutes
