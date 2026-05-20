@@ -1,87 +1,72 @@
 steps:
+  # Build Backend (Flask)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA', './backend']
+    id: 'build-backend'
+  
   # Build Frontend (React)
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA', './Frontend']
     id: 'build-frontend'
   
-  # Build Backend (Flask/Node.js)
+  # Build PlanNavigator
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA', './backend']
-    id: 'build-backend'
-  
-  # Build PlanNavigator (if it's a separate service)
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/plan-navigator:$COMMIT_SHA', './planNavigator']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/plannavigator:$COMMIT_SHA', './planNavigator']
     id: 'build-plannavigator'
   
-  # Push all images
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA']
-    waitFor: ['build-frontend']
-  
+  # Push images to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA']
     waitFor: ['build-backend']
   
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/plan-navigator:$COMMIT_SHA']
+    args: ['push', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA']
+    waitFor: ['build-frontend']
+  
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/plannavigator:$COMMIT_SHA']
     waitFor: ['build-plannavigator']
   
-  # Deploy Backend first
+  # Deploy services to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'backend-service'
+      - 'backend'
       - '--image'
       - 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA'
       - '--region'
-      - 'us-central1'
-      - '--platform'
-      - 'managed'
+      - 'europe-west1'  # Changed to match your region
       - '--allow-unauthenticated'
       - '--port'
-      - '8080'
-      - '--max-instances'
-      - '10'
-    id: 'deploy-backend'
+      - '5000'  # Flask default port
   
-  # Deploy PlanNavigator
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'plan-navigator-service'
+      - 'plannavigator'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/plan-navigator:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/plannavigator:$COMMIT_SHA'
       - '--region'
-      - 'us-central1'
-      - '--platform'
-      - 'managed'
+      - 'europe-west1'
       - '--allow-unauthenticated'
       - '--port'
       - '8080'
-    id: 'deploy-plannavigator'
   
-  # Deploy Frontend with backend URLs
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: bash
     args:
       - '-c'
       - |
-        BACKEND_URL=$(gcloud run services describe backend-service --platform managed --region us-central1 --format 'value(status.url)')
-        PLANNAVIGATOR_URL=$(gcloud run services describe plan-navigator-service --platform managed --region us-central1 --format 'value(status.url)')
-        gcloud run deploy frontend-service \
+        BACKEND_URL=$(gcloud run services describe backend --region europe-west1 --format 'value(status.url)')
+        gcloud run deploy frontend \
           --image gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA \
-          --region us-central1 \
-          --platform managed \
+          --region europe-west1 \
           --allow-unauthenticated \
-          --port 8080 \
-          --set-env-vars REACT_APP_BACKEND_URL=$BACKEND_URL,REACT_APP_PLANNAVIGATOR_URL=$PLANNAVIGATOR_URL
-    waitFor: ['deploy-backend', 'deploy-plannavigator']
+          --port 80 \
+          --set-env-vars REACT_APP_BACKEND_URL=$BACKEND_URL
 
 timeout: '1200s'
-options:
-  logging: CLOUD_LOGGING_ONLY
