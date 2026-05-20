@@ -1,20 +1,15 @@
 steps:
-  # Build Backend (Flask)
+  # Build Backend Service
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA', './backend']
     id: 'build-backend'
   
-  # Build Frontend (React)
+  # Build Frontend Service
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA', './Frontend']
     id: 'build-frontend'
   
-  # Build PlanNavigator
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/plannavigator:$COMMIT_SHA', './planNavigator']
-    id: 'build-plannavigator'
-  
-  # Push images to Container Registry
+  # Push images
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA']
     waitFor: ['build-backend']
@@ -23,46 +18,29 @@ steps:
     args: ['push', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA']
     waitFor: ['build-frontend']
   
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/plannavigator:$COMMIT_SHA']
-    waitFor: ['build-plannavigator']
-  
-  # Deploy services to Cloud Run
+  # Deploy Backend
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'backend'
+      - 'backend-service'
       - '--image'
       - 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA'
-      - '--region'
-      - 'europe-west1'  # Changed to match your region
-      - '--allow-unauthenticated'
-      - '--port'
-      - '5000'  # Flask default port
-  
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'deploy'
-      - 'plannavigator'
-      - '--image'
-      - 'gcr.io/$PROJECT_ID/plannavigator:$COMMIT_SHA'
       - '--region'
       - 'europe-west1'
       - '--allow-unauthenticated'
       - '--port'
       - '8080'
   
+  # Deploy Frontend
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: bash
     args:
       - '-c'
       - |
-        BACKEND_URL=$(gcloud run services describe backend --region europe-west1 --format 'value(status.url)')
-        gcloud run deploy frontend \
+        BACKEND_URL=$(gcloud run services describe backend-service --region europe-west1 --format 'value(status.url)')
+        gcloud run deploy frontend-service \
           --image gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA \
           --region europe-west1 \
           --allow-unauthenticated \
