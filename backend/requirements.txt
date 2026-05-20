@@ -10,3 +10,9 @@ pydantic[email]==2.11.7
 python-multipart==0.0.6
 openpyxl
 google-cloud-aiplatform>=1.62.0
+Flask==2.3.3
+flask-cors==4.0.0
+gunicorn==21.2.0
+pandas==2.0.3
+numpy==1.24.3
+# Add other dependencies based on your imports

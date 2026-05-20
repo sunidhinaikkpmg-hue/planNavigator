@@ -1,29 +1,87 @@
 steps:
+  # Build Frontend (React)
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - build
-      - -t
-      - 'europe-west1-docker.pkg.dev/adv-lighthouse-plnv/cloud-run-source-deploy/sunidhinaikkpmg-hue-plan-navigator/plan-navigator-git-latest:$COMMIT_SHA'
-      - ./backend
-
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA', './Frontend']
+    id: 'build-frontend'
+  
+  # Build Backend (Flask/Node.js)
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - push
-      - 'europe-west1-docker.pkg.dev/adv-lighthouse-plnv/cloud-run-source-deploy/sunidhinaikkpmg-hue-plan-navigator/plan-navigator-git-latest:$COMMIT_SHA'
-
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA', './backend']
+    id: 'build-backend'
+  
+  # Build PlanNavigator (if it's a separate service)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/plan-navigator:$COMMIT_SHA', './planNavigator']
+    id: 'build-plannavigator'
+  
+  # Push all images
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA']
+    waitFor: ['build-frontend']
+  
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA']
+    waitFor: ['build-backend']
+  
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/plan-navigator:$COMMIT_SHA']
+    waitFor: ['build-plannavigator']
+  
+  # Deploy Backend first
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
-      - run
-      - deploy
-      - plan-navigator-git-latest
-      - '--image=europe-west1-docker.pkg.dev/adv-lighthouse-plnv/cloud-run-source-deploy/sunidhinaikkpmg-hue-plan-navigator/plan-navigator-git-latest:$COMMIT_SHA'
-      - '--region=europe-west1'
-      - '--platform=managed'
+      - 'run'
+      - 'deploy'
+      - 'backend-service'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/backend:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
       - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--max-instances'
+      - '10'
+    id: 'deploy-backend'
+  
+  # Deploy PlanNavigator
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'plan-navigator-service'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/plan-navigator:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+    id: 'deploy-plannavigator'
+  
+  # Deploy Frontend with backend URLs
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        BACKEND_URL=$(gcloud run services describe backend-service --platform managed --region us-central1 --format 'value(status.url)')
+        PLANNAVIGATOR_URL=$(gcloud run services describe plan-navigator-service --platform managed --region us-central1 --format 'value(status.url)')
+        gcloud run deploy frontend-service \
+          --image gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA \
+          --region us-central1 \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 8080 \
+          --set-env-vars REACT_APP_BACKEND_URL=$BACKEND_URL,REACT_APP_PLANNAVIGATOR_URL=$PLANNAVIGATOR_URL
+    waitFor: ['deploy-backend', 'deploy-plannavigator']
 
-images:
-  - 'europe-west1-docker.pkg.dev/adv-lighthouse-plnv/cloud-run-source-deploy/sunidhinaikkpmg-hue-plan-navigator/plan-navigator-git-latest:$COMMIT_SHA'
-
+timeout: '1200s'
 options:
   logging: CLOUD_LOGGING_ONLY
